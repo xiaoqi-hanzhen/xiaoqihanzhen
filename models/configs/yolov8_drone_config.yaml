@@ -1,0 +1,46 @@
+# YOLOv8 无人机异物检测配置
+
+model:
+  type: yolov8
+  weights: yolov8s.pt
+  imgsz: 640
+  nc: 6
+  size: s  # 用于调参/导出脚本
+
+train:
+  epochs: 300
+  batch: 8          # 3070 Ti 8GB 建议 8；32GB 内存可尝试 12-16
+  lr0: 0.01
+  optimizer: SGD
+  loss: {box: 7.5, cls: 0.5, dfl: 1.5}
+  augment: True
+  cache: False      # 16GB 内存设 False；32GB 可设 ram
+  workers: 4        # 8GB 显存建议 <=4
+
+data:
+  names: ['kite', 'plastic_film', 'color_cloth', 'balloon', 'bird_nest', 'foreign_object']
+  train: data/splits/train
+  val: data/splits/val
+  test: data/splits/test
+
+small_object:
+  multi_scale: True
+  anchor_t: 4.0
+  focal_loss: True
+  label_smoothing: 0.1
+
+performance:
+  amp: True
+  accumulate: 1
+  image_weights: True
+  rect: False
+
+val:
+  val_interval: 5
+  save_best: True
+  patience: 50
+
+hardware:
+  device: cuda:0
+  exist_ok: False
+  pretrained: True

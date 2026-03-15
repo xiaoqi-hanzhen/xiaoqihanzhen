@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Distribution / packaging
+*.egg
+*.whl
+
+# Virtual environments
+.conda/
+conda-meta/
+
+# Model weights (large binary files)
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+*.weights
+
+# Data directories (large datasets)
+data/raw/
+data/processed/
+data/augmented/
+data/splits/
+
+# Training runs output
+training/runs/
+runs/
+
+# Evaluation outputs
+evaluation/outputs/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+*.env
+
+# Compiled files
+*.pyc
+*.pyo
