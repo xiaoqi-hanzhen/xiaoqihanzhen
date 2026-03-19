@@ -1,0 +1,79 @@
+# YOLOv8 数据集配置文件示例
+# 用于无人机异物检测项目
+
+# 数据集根目录（绝对路径或相对于本文件的路径）
+path: /home/runner/work/xiaoqihanzhen/xiaoqihanzhen/data/splits
+
+# 训练集、验证集、测试集的相对路径（相对于path）
+train: train/images
+val: val/images
+test: test/images
+
+# 类别数量
+nc: 6
+
+# 类别名称列表（顺序对应class_id: 0-5）
+names:
+  - kite           # 0: 风筝
+  - plastic_film   # 1: 塑料薄膜
+  - color_cloth    # 2: 彩条布
+  - balloon        # 3: 气球
+  - bird_nest      # 4: 鸟巢
+  - foreign_object # 5: 其他异物
+
+# 数据集信息（可选）
+dataset_info:
+  description: "无人机航拍异物检测数据集"
+  version: "1.0"
+  detection_targets: "输电线路异物（风筝、塑料薄膜、彩条布、气球、鸟巢等）"
+  image_resolution: "640x640"
+  data_split:
+    train: 80%
+    val: 10%
+    test: 10%
+
+# 数据增强配置（可选，用于训练）
+augmentation:
+  mosaic: 1.0          # Mosaic增强概率
+  mixup: 0.0           # MixUp增强概率
+  hsv_h: 0.015         # HSV色调增强
+  hsv_s: 0.7           # HSV饱和度增强
+  hsv_v: 0.4           # HSV明度增强
+  degrees: 10.0        # 随机旋转角度范围
+  translate: 0.1       # 随机平移范围
+  scale: 0.5           # 随机缩放范围
+  shear: 0.0           # 随机剪切角度
+  perspective: 0.0     # 随机透视变换
+  flipud: 0.0          # 上下翻转概率
+  fliplr: 0.5          # 左右翻转概率
+
+# 小目标检测优化配置（可选）
+small_object_optimization:
+  anchor_t: 4.0           # Anchor匹配阈值
+  label_smoothing: 0.1    # 标签平滑
+  box_loss_gain: 0.05     # 边界框损失权重
+  cls_loss_gain: 0.5      # 分类损失权重
+  obj_loss_gain: 1.0      # 目标性损失权重
+
+# 训练超参数建议（可选，仅供参考）
+recommended_hyperparameters:
+  model: yolov8s.pt       # 推荐模型：YOLOv8s在速度和精度间平衡良好
+  epochs: 300             # 训练轮数
+  batch: 8                # 批次大小（RTX 3070 Ti 8GB优化）
+  imgsz: 640              # 输入图像尺寸
+  optimizer: SGD          # 优化器
+  lr0: 0.01               # 初始学习率
+  lrf: 0.01               # 最终学习率因子
+  momentum: 0.937         # SGD动量
+  weight_decay: 0.0005    # 权重衰减
+  warmup_epochs: 3.0      # 预热轮数
+  warmup_momentum: 0.8    # 预热动量
+  warmup_bias_lr: 0.1     # 预热偏置学习率
+
+# 硬件配置建议（可选）
+hardware_config:
+  gpu: "NVIDIA RTX 3070 Ti"
+  vram: "8GB"
+  system_ram: "16GB"
+  workers: 4              # 数据加载线程数
+  amp: true               # 混合精度训练

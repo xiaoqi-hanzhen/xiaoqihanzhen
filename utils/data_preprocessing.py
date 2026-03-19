@@ -285,16 +285,239 @@ class DataPreprocessor:
         
         print(f"数据配置文件已创建: {yaml_path}")
 
+def clean_and_split(input_dir: str, processed_dir: str, splits_dir: str,
+                    train_ratio: float = 0.8, val_ratio: float = 0.1) -> None:
+    """
+    一键数据清洗和划分函数
+
+    该函数执行完整的数据准备流程：
+    1. 检查和过滤低质量图像
+    2. 移除重复图像
+    3. 标准化图像尺寸
+    4. 将数据集划分为训练集、验证集和测试集
+    5. 生成YOLO数据配置文件
+
+    Args:
+        input_dir: 输入数据目录（包含原始图像和标注）
+        processed_dir: 处理后的数据目录
+        splits_dir: 数据集划分输出目录
+        train_ratio: 训练集比例 (默认: 0.8)
+        val_ratio: 验证集比例 (默认: 0.1)
+    """
+    import random
+    from typing import List
+
+    input_path = Path(input_dir)
+    processed_path = Path(processed_dir)
+    splits_path = Path(splits_dir)
+
+    # 创建必要的目录
+    processed_path.mkdir(parents=True, exist_ok=True)
+    splits_path.mkdir(parents=True, exist_ok=True)
+
+    # 创建训练/验证/测试集目录
+    for split in ['train', 'val', 'test']:
+        (splits_path / split / 'images').mkdir(parents=True, exist_ok=True)
+        (splits_path / split / 'labels').mkdir(parents=True, exist_ok=True)
+
+    print("=" * 60)
+    print("开始数据清洗和划分流程...")
+    print("=" * 60)
+
+    # 初始化预处理器
+    data_dir = input_path.parent if input_path.name == "annotations" else input_path.parent.parent
+    preprocessor = DataPreprocessor(str(data_dir))
+
+    # 确定原始图像目录
+    raw_images_dir = data_dir / "raw"
+    if not raw_images_dir.exists():
+        print(f"警告: {raw_images_dir} 不存在，使用输入目录作为源")
+        raw_images_dir = input_path
+
+    # 1. 检查图像质量
+    print("\n步骤 1/6: 检查图像质量...")
+    valid_images = []
+    invalid_images = []
+
+    image_patterns = ["*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"]
+    for pattern in image_patterns:
+        for img_path in raw_images_dir.glob(pattern):
+            quality_check = preprocessor.check_image_quality(img_path)
+            if quality_check["valid"]:
+                valid_images.append(img_path)
+            else:
+                invalid_images.append((img_path, quality_check.get("reason", "未知原因")))
+                print(f"  ⚠️  跳过低质量图像: {img_path.name} - {quality_check.get('reason', '未知')}")
+
+    print(f"  ✓ 有效图像: {len(valid_images)}, 无效图像: {len(invalid_images)}")
+
+    if len(valid_images) == 0:
+        print("\n错误: 没有找到有效的图像文件！")
+        return
+
+    # 2. 移除重复图像
+    print("\n步骤 2/6: 检测并移除重复图像...")
+    # 创建临时目录用于去重处理
+    temp_dir = processed_path / "temp_dedup"
+    temp_dir.mkdir(exist_ok=True)
+
+    # 复制有效图像到临时目录
+    for img_path in valid_images:
+        shutil.copy2(str(img_path), str(temp_dir / img_path.name))
+
+    removed_files = preprocessor.remove_duplicates(temp_dir, hash_threshold=0.95)
+
+    # 获取去重后的图像列表
+    unique_images = []
+    for pattern in image_patterns:
+        unique_images.extend(list(temp_dir.glob(pattern)))
+
+    print(f"  ✓ 去重完成，保留 {len(unique_images)} 张唯一图像")
+
+    # 3. 标准化图像尺寸
+    print("\n步骤 3/6: 标准化图像尺寸和质量...")
+    standardized_dir = processed_path / "standardized"
+    standardized_dir.mkdir(exist_ok=True)
+
+    standardized_images = []
+    for img_path in unique_images:
+        try:
+            img = cv2.imread(str(img_path))
+            if img is None:
+                continue
+
+            # 调整尺寸为640x640
+            img_resized = cv2.resize(img, (640, 640), interpolation=cv2.INTER_LANCZOS4)
+
+            # 保存标准化后的图像
+            output_path = standardized_dir / f"{img_path.stem}.jpg"
+            cv2.imwrite(str(output_path), img_resized, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            standardized_images.append(output_path)
+
+        except Exception as e:
+            print(f"  ⚠️  处理图像 {img_path.name} 时出错: {e}")
+
+    print(f"  ✓ 标准化完成，共处理 {len(standardized_images)} 张图像")
+
+    # 4. 处理标注文件
+    print("\n步骤 4/6: 转换标注格式...")
+    annotations_dir = input_path if input_path.name == "annotations" else input_path / "annotations"
+    labels_dir = processed_path / "labels"
+    labels_dir.mkdir(exist_ok=True)
+
+    if annotations_dir.exists():
+        # 支持XML和TXT格式
+        xml_files = list(annotations_dir.glob("*.xml"))
+        txt_files = list(annotations_dir.glob("*.txt"))
+
+        if xml_files:
+            print(f"  发现 {len(xml_files)} 个XML标注文件，开始转换...")
+            preprocessor._convert_xml_to_yolo(annotations_dir, labels_dir)
+
+        if txt_files:
+            print(f"  发现 {len(txt_files)} 个TXT标注文件，直接复制...")
+            for txt_file in txt_files:
+                shutil.copy2(str(txt_file), str(labels_dir / txt_file.name))
+    else:
+        print(f"  ⚠️  警告: 未找到标注目录 {annotations_dir}")
+
+    # 统计有效的图像-标注对
+    valid_pairs = []
+    for img_path in standardized_images:
+        label_path = labels_dir / f"{img_path.stem}.txt"
+        if label_path.exists():
+            valid_pairs.append((img_path, label_path))
+        else:
+            print(f"  ⚠️  图像 {img_path.name} 缺少对应的标注文件")
+
+    print(f"  ✓ 找到 {len(valid_pairs)} 对有效的图像-标注对")
+
+    if len(valid_pairs) == 0:
+        print("\n错误: 没有找到有效的图像-标注对！")
+        return
+
+    # 5. 划分数据集
+    print(f"\n步骤 5/6: 划分数据集 (train: {train_ratio}, val: {val_ratio}, test: {1-train_ratio-val_ratio})...")
+
+    # 随机打乱数据
+    random.seed(42)
+    random.shuffle(valid_pairs)
+
+    # 计算划分点
+    total = len(valid_pairs)
+    train_count = int(total * train_ratio)
+    val_count = int(total * val_ratio)
+
+    train_pairs = valid_pairs[:train_count]
+    val_pairs = valid_pairs[train_count:train_count + val_count]
+    test_pairs = valid_pairs[train_count + val_count:]
+
+    print(f"  训练集: {len(train_pairs)} 对")
+    print(f"  验证集: {len(val_pairs)} 对")
+    print(f"  测试集: {len(test_pairs)} 对")
+
+    # 复制文件到对应的划分目录
+    def copy_pairs(pairs: List[Tuple[Path, Path]], split: str):
+        for img_path, label_path in pairs:
+            # 复制图像
+            dst_img = splits_path / split / 'images' / img_path.name
+            shutil.copy2(str(img_path), str(dst_img))
+            # 复制标注
+            dst_label = splits_path / split / 'labels' / label_path.name
+            shutil.copy2(str(label_path), str(dst_label))
+
+    print("  正在复制文件...")
+    copy_pairs(train_pairs, 'train')
+    copy_pairs(val_pairs, 'val')
+    copy_pairs(test_pairs, 'test')
+
+    print("  ✓ 数据集划分完成")
+
+    # 6. 创建数据配置文件
+    print("\n步骤 6/6: 生成YOLO数据配置文件...")
+
+    class_names = ['kite', 'plastic_film', 'color_cloth', 'balloon', 'bird_nest', 'foreign_object']
+
+    data_config = {
+        'path': str(splits_path.absolute()),
+        'train': 'train/images',
+        'val': 'val/images',
+        'test': 'test/images',
+        'nc': len(class_names),
+        'names': class_names
+    }
+
+    yaml_path = splits_path / "data.yaml"
+    with open(yaml_path, 'w', encoding='utf-8') as f:
+        yaml.dump(data_config, f, allow_unicode=True, sort_keys=False)
+
+    print(f"  ✓ 数据配置文件已创建: {yaml_path}")
+
+    # 清理临时目录
+    print("\n清理临时文件...")
+    if temp_dir.exists():
+        shutil.rmtree(temp_dir)
+
+    print("\n" + "=" * 60)
+    print("✅ 数据清洗和划分流程完成！")
+    print("=" * 60)
+    print(f"\n数据集位置: {splits_path}")
+    print(f"配置文件: {yaml_path}")
+    print(f"\n现在可以使用以下命令开始训练:")
+    print(f"  python scripts/train_yolov8.py --data {yaml_path}")
+    print("=" * 60)
+
+
 def main():
     """主函数：数据预处理流程示例"""
     # 设置数据目录
     data_dir = "data"
-    
+
     # 初始化预处理器
     preprocessor = DataPreprocessor(data_dir)
-    
+
     print("开始数据预处理...")
-    
+
     # 1. 检查图像质量
     print("\n1. 检查图像质量...")
     raw_images_dir = preprocessor.raw_dir
@@ -302,25 +525,25 @@ def main():
         quality_check = preprocessor.check_image_quality(img_path)
         if not quality_check["valid"]:
             print(f"⚠️  图像质量问题: {img_path.name} - {quality_check['reason']}")
-    
+
     # 2. 移除重复图像
     print("\n2. 移除重复图像...")
     removed_files = preprocessor.remove_duplicates(raw_images_dir)
-    
+
     # 3. 标准化图像
     print("\n3. 标准化图像尺寸...")
     preprocessor.standardize_images(raw_images_dir, output_size=(640, 640))
-    
+
     # 4. 转换标注格式
     print("\n4. 转换标注格式...")
     annotations_dir = preprocessor.annotations_dir
     preprocessor.convert_annotation_format(annotations_dir, input_format="xml", output_format="yolo")
-    
+
     # 5. 创建数据配置文件
     print("\n5. 创建数据配置文件...")
     class_names = ['kite', 'plastic_film', 'color_cloth', 'balloon', 'bird_nest', 'foreign_object']
     preprocessor.create_data_yaml(class_names)
-    
+
     print("\n✅ 数据预处理完成！")
 
 if __name__ == "__main__":
